@@ -1,0 +1,38 @@
+# ROS 2 build directories
+build/
+install/
+log/
+
+# Compiled Object files, libraries, executables
+*.o
+*.obj
+*.exe
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# Compilation database
+compile_commands.json
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+
+# IDE / Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+Testing/
+*.log

@@ -1,0 +1,17 @@
+motor_simulator:
+  ros__parameters:
+    num_thrusters: 6
+    max_rpm: 3000.0
+    time_constant: 0.3
+    thrust_coefficient: 0.0005
+    dead_band_rpm: 50.0
+    velocity_to_rpm_scale: 1000.0
+    simulation_rate: 50.0
+    nominal_voltage: 16.0
+
+cmd_vel_publisher:
+  ros__parameters:
+    publish_rate: 10.0
+    pattern: "sinusoidal"
+    amplitude: 1.0
+    frequency: 0.2

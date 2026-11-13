@@ -1,0 +1,33 @@
+name: ROS 2 CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          rosdep update
+          rosdep install --from-paths src --ignore-src -r -y
+
+      - name: Build workspace
+        run: |
+          . /opt/ros/humble/setup.sh
+          colcon build --packages-select motor_control_msgs motor_control_sim --event-handlers console_direct+
+
+      - name: Run unit tests
+        run: |
+          . /opt/ros/humble/setup.sh
+          colcon test --packages-select motor_control_sim --event-handlers console_direct+
+          colcon test-result --verbose

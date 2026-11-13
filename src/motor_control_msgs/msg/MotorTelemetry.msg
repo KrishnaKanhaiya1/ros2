@@ -1,0 +1,10 @@
+std_msgs/Header header
+uint8 motor_id
+string motor_name
+float64 target_rpm
+float64 current_rpm
+float64 thrust_newtons
+float64 voltage
+float64 current_amps
+float64 temperature_celsius
+bool is_saturated
