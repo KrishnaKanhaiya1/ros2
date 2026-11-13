@@ -29,24 +29,28 @@ This repository fulfills the underwater robotics development requirements:
 
 ```mermaid
 flowchart TD
-    User["Navigation Controller / Joystick"] -->|/cmd_vel (geometry_msgs/Twist)| Node["MotorSimulatorNode (C++)"]
-    TestGen["CmdVelPublisherNode (C++)"] -.->|/cmd_vel (Optional Test Stream)| Node
+    User["Navigation Controller / Joystick"] -->|"cmd_vel (Twist)"| Node["MotorSimulatorNode (C++)"]
+    TestGen["CmdVelPublisherNode (C++)"] -.->|"cmd_vel (Test)"| Node
 
-    subgraph Core Firmware Simulator
-        Node --> Alloc["ThrusterAllocator (6-DOF Mapping Matrix)"]
-        Alloc --> M1["ThrusterMotor: thruster_FL"]
-        Alloc --> M2["ThrusterMotor: thruster_FR"]
-        Alloc --> M3["ThrusterMotor: thruster_RL"]
-        Alloc --> M4["ThrusterMotor: thruster_RR"]
-        Alloc --> M5["ThrusterMotor: thruster_VL"]
-        Alloc --> M6["ThrusterMotor: thruster_VR"]
+    subgraph Firmware["Firmware Simulator"]
+        Node --> Alloc["ThrusterAllocator (6-DOF)"]
+        Alloc --> M1["Thruster FL"]
+        Alloc --> M2["Thruster FR"]
+        Alloc --> M3["Thruster RL"]
+        Alloc --> M4["Thruster RR"]
+        Alloc --> M5["Thruster VL"]
+        Alloc --> M6["Thruster VR"]
     end
 
-    M1 & M2 & M3 & M4 & M5 & M6 --> PubAgg["Aggregate Telemetry Publisher"]
-    M1 & M2 & M3 & M4 & M5 & M6 --> PubPer["Per-Thruster Telemetry Publishers"]
+    M1 --> PubAgg["Aggregate Telemetry"]
+    M2 --> PubAgg
+    M3 --> PubAgg
+    M4 --> PubAgg
+    M5 --> PubAgg
+    M6 --> PubAgg
 
-    PubAgg -->|/motor/rpm| TopicRPM["MotorRPM.msg (All Thrusters)"]
-    PubPer -->|/motor/thruster_*/telemetry| TopicTel["MotorTelemetry.msg (Electrical, Thermal, Saturation)"]
+    PubAgg --> TopicRPM["/motor/rpm (MotorRPM)"]
+    PubAgg --> TopicTel["/motor/*/telemetry (MotorTelemetry)"]
 ```
 
 ---
@@ -78,18 +82,22 @@ The ROV employs standard vectored thruster geometry:
 
 ### Thruster Allocation Matrix
 
-$$\mathbf{\Omega}_{\text{cmd}} = \text{scale} \cdot \mathbf{A} \cdot \begin{bmatrix} v_x \\ v_y \\ v_z \\ \omega_z \end{bmatrix}$$
+$$
+\mathbf{\Omega}_{\mathrm{cmd}} = \mathrm{scale} \cdot \mathbf{A} \cdot \begin{bmatrix} v_x \\ v_y \\ v_z \\ \omega_z \end{bmatrix}
+$$
 
-$$\mathbf{A} = \begin{bmatrix}
+$$
+\mathbf{A} = \begin{bmatrix}
 0.707 & 0.707 & 0.0 & -0.5 \\
 0.707 & -0.707 & 0.0 & 0.5 \\
 -0.707 & -0.707 & 0.0 & -0.5 \\
 -0.707 & 0.707 & 0.0 & 0.5 \\
 0.0 & 0.0 & 1.0 & 0.0 \\
 0.0 & 0.0 & 1.0 & 0.0
-\end{bmatrix}$$
+\end{bmatrix}
+$$
 
-If any commanded RPM exceeds $\pm \text{max\_rpm}$, the entire vector is normalized to preserve the net force vector direction without clipping asymmetry.
+If any commanded RPM exceeds $\pm \Omega_{\max}$ ($\pm 3000\text{ RPM}$), the entire vector is normalized to preserve the net force vector direction without clipping asymmetry.
 
 ---
 
@@ -97,22 +105,41 @@ If any commanded RPM exceeds $\pm \text{max\_rpm}$, the entire vector is normali
 
 Each thruster motor firmware simulation implements:
 
-1. **Deadband & Hard Saturation:**
-   $$\Omega_{\text{target}} = \begin{cases} 0 & \text{if } |\Omega_{\text{in}}| < \text{dead\_band} \\ \text{clamp}(\Omega_{\text{in}}, -\Omega_{\max}, \Omega_{\max}) & \text{otherwise} \end{cases}$$
+### 1. Deadband & Hard Saturation
 
-2. **First-Order Transient Dynamics (Low-Pass Filter):**
-   $$\tau \frac{d\Omega}{dt} + \Omega = \Omega_{\text{target}}$$
-   Discretized via Euler numerical integration with step size $\Delta t$:
-   $$\Omega_{k+1} = \Omega_k + \min\left(1.0, \frac{\Delta t}{\tau}\right) (\Omega_{\text{target}} - \Omega_k)$$
+$$
+\Omega_{\mathrm{target}} = \begin{cases} 0 & \text{if } |\Omega_{\mathrm{in}}| < \Omega_{\mathrm{deadband}} \\ \mathrm{clamp}(\Omega_{\mathrm{in}}, -\Omega_{\max}, \Omega_{\max}) & \text{otherwise} \end{cases}
+$$
 
-3. **Hydrodynamic Thrust (Quadratic Law):**
-   $$F_{\text{thrust}} = K_t \cdot |\Omega| \cdot \Omega \quad [\text{N}]$$
+### 2. First-Order Transient Dynamics (Low-Pass Filter)
 
-4. **Electrical Back-EMF & Current:**
-   $$V_{\text{emf}} = |\Omega| \cdot K_v, \quad I = \max\left(0, \frac{V_{\text{nominal}} - V_{\text{emf}}}{R}\right) \quad [\text{A}]$$
+$$
+\tau \frac{d\Omega}{dt} + \Omega = \Omega_{\mathrm{target}}
+$$
 
-5. **Thermal Dissipation:**
-   $$T = T_{\text{ambient}} + R_{\text{thermal}} \cdot (I^2 \cdot R) \quad [^\circ\text{C}]$$
+Discretized via Euler numerical integration with step size $\Delta t$:
+
+$$
+\Omega_{k+1} = \Omega_k + \min\left(1.0, \frac{\Delta t}{\tau}\right) (\Omega_{\mathrm{target}} - \Omega_k)
+$$
+
+### 3. Hydrodynamic Thrust (Quadratic Law)
+
+$$
+F_{\mathrm{thrust}} = K_t \cdot |\Omega| \cdot \Omega \quad [\text{N}]
+$$
+
+### 4. Electrical Back-EMF & Current
+
+$$
+V_{\mathrm{emf}} = |\Omega| \cdot K_v, \quad I = \max\left(0, \frac{V_{\mathrm{nominal}} - V_{\mathrm{emf}}}{R}\right) \quad [\text{A}]
+$$
+
+### 5. Thermal Dissipation
+
+$$
+T = T_{\mathrm{ambient}} + R_{\mathrm{thermal}} \cdot (I^2 \cdot R) \quad [^\circ\mathrm{C}]
+$$
 
 ---
 
@@ -248,9 +275,9 @@ g++ -std=c++14 -O2 -I src/motor_control_sim/include test_motor_system.cpp -o tes
 
 This test program validates:
 1. Physical parameter defaults
-2. First-order transient step response and convergence ($1\tau \approx 63.2\%$, $5\tau > 99\%$)
+2. First-order transient step response and convergence (63.2% at 1 time constant, >99% at 5 time constants)
 3. Deadband filtering and saturation clamping
-4. Directional quadratic hydrodynamic thrust ($F = K_t |\Omega| \Omega$)
+4. Directional quadratic hydrodynamic thrust ($F = K_t \cdot |\Omega| \cdot \Omega$)
 5. 6-DOF to 6-thruster geometric allocation (pure surge, pure heave, normalizer)
 6. Dynamic flight mission telemetry streaming over time with command timeout auto-zeroing
 
